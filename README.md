@@ -1,34 +1,62 @@
 # Model Studio
 
-A browser-based editor for **BPMN, EPK, ERM, and table-based ER diagrams**. Create and connect shapes, define database tables with primary and foreign keys, and export diagrams as PNG, JPEG, or PDF.
+Ein deutschsprachiger Diagrammeditor für **BPMN, EPK, ER-Modelle und Datenbanktabellen**. Ohne Anmeldung, ohne externe Dienste und ohne Laufzeit-Abhängigkeiten.
 
-## Features
+## Lokal starten
 
-- Separate canvases for business processes, event chains, conceptual entity relationships, and database tables.
-- Drag shapes, edit labels and colors, resize elements, and connect them.
-- Table columns with names, SQL data types, PK/FK markers, and automatically adjusted table height.
-- Column-specific table relationships with `1`, `0..1`, `1..N`, and `0..N` cardinalities.
-- Undo/redo, zoom, fit to view, and automatic browser-local saving.
-- Editable JSON project import/export, including older Model Studio projects.
-- PNG and JPEG downloads at 1×, 2×, or 3× resolution, plus PDF downloads.
-- PNG clipboard copying when supported and permitted by the browser.
-- Offline standalone HTML build. No external libraries, fonts, or runtime services.
-
-## Run locally
-
-Install [Node.js](https://nodejs.org/) 22 or later, then run:
+Node.js ab Version 22 installieren und im Projektordner ausführen:
 
 ```sh
-git clone https://github.com/AlexSeiff/diagramm_editor.git
-cd diagramm_editor
 npm run dev
 ```
 
-Open **http://localhost:5173**. No package installation is necessary because the project has no dependencies. On Windows, use `npm.cmd` if PowerShell blocks `npm.ps1`.
+Dann `http://localhost:5173` öffnen. Eine Paketinstallation ist für die Anwendung nicht nötig. Unter Windows bei gesperrten PowerShell-Skripten `npm.cmd` verwenden.
 
-You can also open `index.html` directly in a modern browser. A localhost server or HTTPS is recommended for clipboard support.
+## Funktionen
 
-## Build and test
+- Klarer Einstieg mit leerem Diagramm, Vorlage oder Projektdatei.
+- Vier getrennte, individuell benennbare Diagramme je Projekt.
+- Einklappbare Bibliothek und kontextbezogene Eigenschaften, auch auf schmalen Geräten.
+- Elemente durch Klick oder Drag-and-drop hinzufügen, verschieben, duplizieren und löschen.
+- Verbindungen über Verbindungspunkt, Werkzeug oder Tastatur erstellen; doppelte gerichtete Verbindungen werden verhindert.
+- Mehrfachauswahl, gemeinsames Verschieben, Ausrichten und Verteilen.
+- BPMN-Bereiche mit geometrischer Zuordnung: vollständig darin platzierte Elemente bewegen sich mit dem Bereich.
+- Tabelleneditor mit Spaltenzeilen, Datentypen, PK/FK, Sortierung und optionaler Texteingabe.
+- Spaltenbezogene Tabellenbeziehungen mit Kardinalitäten.
+- Tastaturbedienung, zentrierter Zoom, Verschieben der Ansicht und „Alles anzeigen“.
+- Grundlegende Modellhinweise mit Navigation zum betroffenen Element.
+- Undo/Redo für Modelländerungen, einschließlich Projekt- und Diagrammnamen.
+- Automatische Browserspeicherung, sichtbare Speicherfehler und fünf lokale Wiederherstellungsstände.
+- Validierter JSON-Import mit Unterstützung bisheriger Projektdateien; Sicherungsoption vor dem Ersetzen.
+- Exportvorschau, SVG, PNG, JPEG und PDF; transparente PNG/SVG sowie A4-PDF im Hoch-/Querformat.
+- Eigenständige Offline-HTML-Datei im Build.
+
+## Bedienung
+
+1. Modellart wählen und eine Vorlage verwenden oder Elemente hinzufügen.
+2. Ein Element auswählen: Rechts öffnet sich der Eigenschaftenbereich. Mit Enter oder Doppelklick die Beschriftung bearbeiten.
+3. „Verbinden“ wählen, Quelle und Ziel anklicken. Alternativ den sichtbaren Verbindungspunkt eines Elements verwenden.
+4. In Tabellen Spalten direkt bearbeiten. Fehler werden anhaltend angezeigt; nur gültige Spalten werden in das gespeicherte Modell übernommen. Ungültige Entwürfe bleiben während der laufenden Sitzung beim Wechsel der Auswahl erhalten.
+5. „Projektdatei“ lädt das ganze Projekt als weiterbearbeitbare JSON-Datei herunter. „Exportieren“ exportiert nur das aktuelle Diagramm.
+
+| Tastenkürzel | Aktion |
+| --- | --- |
+| Strg/Cmd + Z | Rückgängig |
+| Strg/Cmd + Umschalt + Z | Wiederholen |
+| Strg/Cmd + D | Auswahl duplizieren |
+| Umschalt + Klick | Mehrfachauswahl |
+| Strg/Cmd + A | Alle Elemente auswählen |
+| Pfeiltasten | Auswahl um 10 Pixel verschieben |
+| Umschalt + Pfeiltasten | Auswahl um 1 Pixel verschieben |
+| Enter / F2 | Eigenschaften der fokussierten Auswahl bearbeiten |
+| C, dann Enter | Verbindung am fokussierten Element beginnen; mit Tab das Ziel fokussieren und Enter drücken |
+| Leertaste + Ziehen | Ansicht verschieben |
+| Strg/Cmd + Mausrad | Um die Mausposition zoomen |
+| Mausrad | Ansicht verschieben |
+| Entf / Rücktaste | Auswahl löschen |
+| Esc | Verbindung oder Verschiebung abbrechen, Auswahl aufheben |
+
+## Build und Tests
 
 ```sh
 npm test
@@ -36,44 +64,36 @@ npm run build
 npm run preview
 ```
 
-The build creates `dist/` with a static website and **`dist/Model Studio.html`**, a self-contained file you can download, share, and open offline. Static assets use relative paths, so the app can be hosted in a subdirectory, including a GitHub Pages project site.
+`dist/` enthält die statische Website und **`Model Studio.html`** zum direkten Offline-Öffnen. Die Quelldateien verwenden ES-Module und benötigen deshalb einen lokalen Server; die gebündelte Offline-Datei benötigt keinen Server. Der Build löst die explizit gelisteten lokalen Module auf; ein Framework oder externer Bundler ist nicht erforderlich.
 
-## How to use
+Die Node-Tests prüfen Migrationen, Importvalidierung, Undo/Redo, Beziehungen, Pools, SVG-Ausgabe, Sicherungen, Build und Server. Die optionale Browserprüfung benötigt eine separat verfügbare Playwright-Installation und einen laufenden Entwicklungsserver:
 
-1. Choose **BPMN**, **EPK**, **ERM**, or **ER diagram · Tables**.
-2. Click a toolbox item to add it. Drag it to reposition it.
-3. Select an element to edit its properties, or double-click to rename it.
-4. Click **Connect**, then a source and destination shape. Select a connection to edit its label.
-5. In table mode, select a connection to choose the source/destination columns and cardinalities.
-6. Use **Save project** for editable JSON or **Export diagram** for PNG, JPEG, PDF, and image copying.
-
-Table columns use one line per column in the inspector:
-
-```text
-PK | id | INT
-FK | customer_id | INT
- | name | VARCHAR(255)
-PK FK | order_id | INT
+```sh
+npm run test:browser
 ```
 
-Click outside the column editor to apply changes. Column names must be unique within each table. Up to 40 columns are supported per table.
+Alternativ `PLAYWRIGHT_MODULE` auf den Pfad einer vorhandenen Playwright-Installation setzen. `BROWSER_CHANNEL=msedge` verwendet das installierte Edge; ohne Angabe verwendet Playwright sein Chromium. `TEST_URL` überschreibt den Server, `SCREENSHOT_DIR` aktiviert Bildschirmaufnahmen. Die Browserprüfung verwendet ausschließlich isolierte Testprofile.
 
-**Shortcuts:** Delete/Backspace removes the selection; Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z redoes; Escape returns to selection mode.
+## Daten und Grenzen
 
-## Data and compatibility
+Projekte bleiben im lokalen Speicher des jeweiligen Browsers. Alte Daten unter `model-studio-v1` werden gelesen und nicht gelöscht; neue Änderungen werden versioniert unter `model-studio-v2` gespeichert. Sicherungen entstehen beim Sitzungsstart sowie vor Austausch, Leeren oder Wiederherstellung. Sie ersetzen keine heruntergeladenen Projektdateien. Inkonsistente gespeicherte Daten werden nicht automatisch überschrieben; eine gültige importierte Datei ermöglicht den Neustart.
 
-Diagrams stay in your browser's local storage; the app does not upload them. Save JSON backups before clearing browser data or switching browsers or devices. Clipboard access depends on browser support and permissions. JPEG and PDF are downloads; clipboard images use PNG.
+Die Modellprüfung bietet grundlegende Hinweise, keine vollständige BPMN-/EPK-Konformitätsprüfung. Pools sind visuelle Bereiche mit Elementzuordnung; verschachtelte Lanes, Message-Flows und ausführbare BPMN-Dateien sind nicht implementiert. Verbindungen werden orthogonal geführt, aber nicht automatisch um sämtliche Hindernisse gelegt. PDF enthält ein hochauflösendes Rasterbild; SVG ist das skalierbare Vektorformat. Kopieren in die Zwischenablage hängt von Browserfreigabe und sicherem Kontext ab.
 
-This is a visual modeling tool, not a BPMN execution engine, formal notation validator, or SQL schema generator. Table relationships use numeric cardinality labels. PDF exports contain a high-resolution image rather than editable vector objects.
+Optionale Erweiterungen und der umgesetzte Umfang stehen in [docs/UMSETZUNG.md](docs/UMSETZUNG.md). Der ursprüngliche, weiterhin editierbare Plan liegt in [docs/VERBESSERUNGSPLAN.md](docs/VERBESSERUNGSPLAN.md).
 
-Tests cover editor logic and export markup using a simulated DOM, plus standalone build integrity. They do not replace interactive browser testing of dragging, clipboard permissions, and raster/PDF rendering.
-
-## Project structure
+## Struktur
 
 ```text
-index.html       App interface
-style.css        Responsive styling
-app.js           Editor, local storage, and export logic
-scripts/         Dependency-free development server and build
-tests/           Editor and build checks
+index.html       Oberfläche und Dialoge
+style.css        Designvariablen und responsive Gestaltung
+app.js           Interaktion und Ansichtssteuerung
+src/model.js     Datenmodell, Validierung, Vorlagen, Historie
+src/render.js    SVG-Darstellung und Exportgrenzen
+src/storage.js   Speicherung und Wiederherstellungsstände
+src/export.js    Bild-, SVG- und PDF-Ausgabe
+src/icons.js     Einheitliche SVG-Symbole
+scripts/         Statischer Entwicklungsserver und Offline-Build
+tests/           Modell-, Build-, Server- und Browserprüfungen
+docs/            Verbesserungsplan und Umsetzungsstand
 ```

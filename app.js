@@ -1,112 +1,172 @@
-const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
-const types={ERD:[['table','Table']],BPMN:[['start','Start event'],['task','Task'],['gateway','Exclusive gateway'],['parallel','Parallel gateway'],['intermediate','Intermediate event'],['end','End event'],['pool','Pool / lane']],EPK:[['event','Event'],['function','Function'],['xor','XOR connector'],['and','AND connector'],['or','OR connector'],['org','Organization'],['data','Information object']],ERM:[['entity','Entity'],['relationship','Relationship'],['attribute','Attribute'],['key','Key attribute'],['weak','Weak entity']]};
-let mode='BPMN',selected=null,tool='select',source=null,drag=null,zoom=1,history=[],future=[],state={title:'Order fulfillment',boards:{BPMN:{nodes:[],edges:[]},EPK:{nodes:[],edges:[]},ERM:{nodes:[],edges:[]}}};
-const board=()=>state.boards[mode],uid=()=>crypto.randomUUID(),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
-function node(type,label,x,y){return{id:uid(),type,label,x,y,w:['start','end','intermediate','xor','and','or'].includes(type)?54:['gateway','parallel'].includes(type)?70:type==='pool'?420:150,h:['start','end','intermediate','xor','and','or'].includes(type)?54:['gateway','parallel'].includes(type)?70:type==='pool'?210:76,color:['event','start','end','intermediate'].includes(type)?'#f0f3df':['entity','weak','attribute','key'].includes(type)?'#edf1fa':'#e6efdf'}}
-function sample(){const b=board();let data=mode==='BPMN'?[['start','Order received',90,330],['task','Review order',235,318],['gateway','Available?',470,321],['task','Prepare shipment',650,235],['task','Notify customer',650,410],['end','Order complete',930,247]]:mode==='EPK'?[['event','Order received',95,320],['function','Check availability',310,320],['xor','XOR',540,331],['event','Stock available',720,230],['event','Out of stock',720,410]]:[['entity','Customer',130,330],['relationship','places',420,330],['entity','Order',730,330],['key','customer_id',130,135],['attribute','name',130,520],['key','order_id',730,135]];b.nodes=data.map(a=>node(...a));let pairs=mode==='BPMN'?[[0,1],[1,2],[2,3,'Yes'],[2,4,'No'],[3,5]]:mode==='EPK'?[[0,1],[1,2],[2,3],[2,4]]:[[0,1,'1'],[1,2,'N'],[0,3],[0,4],[2,5]];b.edges=pairs.map(([a,c,label])=>({id:uid(),from:b.nodes[a].id,to:b.nodes[c].id,label:label||''}));}
-try{let s=JSON.parse(localStorage.getItem('model-studio-v1'));if(s&&s.boards)state=validateProject(s);else sample()}catch{sample()}
-function persist(){state.title=$('title').value;try{localStorage.setItem('model-studio-v1',JSON.stringify(state));$('saveStatus').textContent='● Saved on this device'}catch{$('saveStatus').textContent='Storage full — save project'}}
-function checkpoint(){history.push(JSON.stringify(state));if(history.length>60)history.shift();future=[]}
-function toast(t){$('toast').textContent=t;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',3500)}
-function shape(n){const {type:t,w,h,color:c}=n;let s=`fill="${esc(c)}" stroke="#536b57" stroke-width="1.7"`;if(['start','end','intermediate','xor','and','or'].includes(t))return `<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-3}" ry="${h/2-3}" ${s} ${t==='end'?'style="stroke-width:4"':''}/>${t==='intermediate'?`<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-8}" ry="${h/2-8}" fill="none" stroke="#536b57"/>`:''}`;if(['gateway','parallel','relationship'].includes(t))return `<path d="M ${w/2} 0 L ${w} ${h/2} L ${w/2} ${h} L 0 ${h/2} Z" ${s}/>`;if(t==='event')return `<path d="M 20 0 H ${w-20} L ${w} ${h/2} L ${w-20} ${h} H 20 L 0 ${h/2} Z" ${s}/>`;if(['attribute','key'].includes(t))return `<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" ${s}/>`;return `<rect width="${w}" height="${h}" rx="${['task','function'].includes(t)?12:2}" ${s}/>${t==='weak'?`<rect x="5" y="5" width="${w-10}" height="${h-10}" fill="none" stroke="#536b57"/>`:''}${t==='pool'?`<path d="M 30 0 V ${h}" stroke="#536b57"/>`:''}`}
-function text(n){let symbol={gateway:'×',parallel:'+',xor:'XOR',and:'∧',or:'∨'}[n.type],outside=['start','end','intermediate','gateway','parallel'].includes(n.type),label=symbol||(outside?'':n.label);const lines=label.split('\n').flatMap(line=>line.match(/.{1,22}(?:\s|$)|.{1,22}/g)||['']);return `<text x="${n.w/2}" y="${n.h/2-(lines.length-1)*8}" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI,Arial,sans-serif" font-size="${symbol?22:13}" fill="#314a39" ${n.type==='key'?'text-decoration="underline"':''}>${lines.map((l,i)=>`<tspan x="${n.w/2}" dy="${i?16:0}">${esc(l.trim())}</tspan>`).join('')}</text>${outside?`<text x="${n.w/2}" y="${n.h+23}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#536853">${esc(n.label)}</text>`:''}`}
-function anchor(n,t){const dx=t.x+t.w/2-n.x-n.w/2,dy=t.y+t.h/2-n.y-n.h/2;if(Math.abs(dx)/n.w>Math.abs(dy)/n.h)return{x:n.x+(dx>0?n.w:0),y:n.y+n.h/2};return{x:n.x+n.w/2,y:n.y+(dy>0?n.h:0)}}
-function markup(clean=false){let b=board();return `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#6c806a" stroke-width="1.5"/></marker></defs>`+b.edges.map(e=>{let a=b.nodes.find(n=>n.id===e.from),c=b.nodes.find(n=>n.id===e.to);if(!a||!c)return '';let p=anchor(a,c),q=anchor(c,a),mid=(p.x+q.x)/2;return `<g class="edge" data-id="${esc(e.id)}"><path d="M${p.x} ${p.y} H${mid} V${q.y} H${q.x}" fill="none" stroke="${!clean&&selected===e.id?'#4981d0':'#7f9078'}" stroke-width="1.7" ${mode!=='ERM'?'marker-end="url(#arrow)"':''}/><path d="M${p.x} ${p.y} H${mid} V${q.y} H${q.x}" fill="none" stroke="transparent" stroke-width="18"/><text x="${mid+8}" y="${(p.y+q.y)/2-9}" font-family="Segoe UI,Arial" font-size="12" fill="#52664d" paint-order="stroke" stroke="white" stroke-width="4">${esc(e.label)}</text></g>`}).join('')+b.nodes.map(n=>`<g class="node" data-id="${esc(n.id)}" transform="translate(${n.x},${n.y})">${!clean&&(selected===n.id||source===n.id)?`<rect x="-7" y="-7" width="${n.w+14}" height="${n.h+14}" rx="8" fill="none" stroke="#719956" stroke-dasharray="4 3"/>`:''}${shape(n)}${text(n)}</g>`).join('')}
-function render(){ $('canvas').innerHTML=markup();$('canvas').setAttribute('viewBox',`0 0 ${1200/zoom} ${760/zoom}`);$('zoom').textContent=Math.round(zoom*100)+'%';$('counts').textContent=`${board().nodes.length} elements · ${board().edges.length} connections`;$('modeLabel').textContent=mode+' DIAGRAM';$('tabs').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));$('undo').disabled=!history.length;$('redo').disabled=!future.length;inspect();persist()}
-function palette(){ $('palette').innerHTML=types[mode].map(([t,l])=>`<button data-type="${t}"><svg viewBox="-5 -5 160 90">${shape({...node(t,l,0,0),w:150,h:76})}</svg>${l}</button>`).join('');$('palette').querySelectorAll('button').forEach(b=>b.onclick=()=>{checkpoint();let count=board().nodes.length;let n=node(b.dataset.type,types[mode].find(t=>t[0]===b.dataset.type)[1],100+(count%5)*175,100+Math.floor(count/5)%4*130);board().nodes.push(n);selected=n.id;render()})}
-function inspect(){let n=board().nodes.find(n=>n.id===selected),e=board().edges.find(e=>e.id===selected);$('fields').hidden=!(n||e);$('inspectorHint').hidden=!!(n||e);$('inspectorTitle').textContent=n?'Element properties':e?'Connection':'Make it yours';if(n||e){$('label').value=(n||e).label;['color','width','height','duplicate'].forEach(id=>$(id).closest('label')?$(id).closest('label').hidden=!n:$(id).hidden=!n);if(n){$('color').value=n.color;$('width').value=n.w;$('height').value=n.h}}}
-$('title').value=state.title;$('title').oninput=persist;
-$('tabs').onclick=e=>{let b=e.target.closest('[data-mode]');if(!b)return;mode=b.dataset.mode;selected=null;source=null;zoom=1;palette();render()};
-function point(e){let p=$('canvas').createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform($('canvas').getScreenCTM().inverse())}
-$('canvas').onpointerdown=e=>{let g=e.target.closest('[data-id]');if(!g){selected=null;source=null;render();return}let id=g.dataset.id,n=board().nodes.find(n=>n.id===id);if(tool==='connect'&&n){if(source&&source!==id){checkpoint();board().edges.push({id:uid(),from:source,to:id,label:''});source=null;toast('Connection added')}else{source=id;toast('Now select the destination shape')}render();return}selected=id;let p=point(e);if(n){checkpoint();drag={id,dx:p.x-n.x,dy:p.y-n.y};$('canvas').setPointerCapture(e.pointerId)}render()};
-$('canvas').onpointermove=e=>{if(!drag)return;let n=board().nodes.find(n=>n.id===drag.id),p=point(e);n.x=Math.max(10,Math.round((p.x-drag.dx)/10)*10);n.y=Math.max(10,Math.round((p.y-drag.dy)/10)*10);render()};$('canvas').onpointerup=()=>{drag=null};$('canvas').onpointercancel=()=>{drag=null};
-$('canvas').ondblclick=e=>{let g=e.target.closest('[data-id]');if(!g)return;let n=[...board().nodes,...board().edges].find(n=>n.id===g.dataset.id);let v=prompt('Edit label',n.label);if(v!==null){checkpoint();n.label=v;render()}};
-['select','connect'].forEach(t=>$(t).onclick=()=>{tool=t;source=null;['select','connect'].forEach(x=>$(x).classList.toggle('chosen',x===t));$('canvas').style.cursor=t==='connect'?'crosshair':'default';render()});
-['label','color','width','height'].forEach(id=>$(id).onchange=()=>{let n=[...board().nodes,...board().edges].find(n=>n.id===selected);if(!n)return;checkpoint();let k={width:'w',height:'h'}[id]||id;n[k]=['w','h'].includes(k)?Math.min(500,Math.max(n.type==='table'&&k==='w'?240:30,Number($(id).value)||50)):$(id).value;render()});
-function remove(){if(!selected)return;checkpoint();board().nodes=board().nodes.filter(n=>n.id!==selected);board().edges=board().edges.filter(e=>e.id!==selected&&e.from!==selected&&e.to!==selected);selected=null;render()}
-$('delete').onclick=remove;$('duplicate').onclick=()=>{let n=board().nodes.find(n=>n.id===selected);if(!n)return;checkpoint();let c={...n,id:uid(),x:n.x+35,y:n.y+100};board().nodes.push(c);selected=c.id;render()};
-$('undo').onclick=()=>{if(!history.length)return;future.push(JSON.stringify(state));state=JSON.parse(history.pop());selected=null;$('title').value=state.title;render()};$('redo').onclick=()=>{if(!future.length)return;history.push(JSON.stringify(state));state=JSON.parse(future.pop());selected=null;$('title').value=state.title;render()};
-document.onkeydown=e=>{if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove()}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click()}if(e.key==='Escape'){$('select').click();selected=null;render()}};
-$('new').onclick=()=>{if(board().nodes.length&&!confirm('Clear this canvas? You can undo this action.'))return;checkpoint();state.boards[mode]={nodes:[],edges:[]};selected=null;render()};
-$('plus').onclick=()=>{zoom=Math.min(2,zoom+.1);render()};$('minus').onclick=()=>{zoom=Math.max(.3,zoom-.1);render()};$('fit').onclick=()=>{let b=bounds();zoom=Math.min(1.5,1200/(b.x+b.w+40),760/(b.y+b.h+40));render()};
-function download(blob,ext){let a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=($('title').value||'diagram').replace(/[<>:"/\\|?*]/g,'-')+'.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(u),10000)}
-$('save').onclick=()=>download(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),'json');$('open').onclick=()=>$('file').click();
-function bounds(){let n=board().nodes;if(!n.length)return{x:0,y:0,w:800,h:500};let x=Math.min(...n.map(n=>n.x))-45,y=Math.min(...n.map(n=>n.y))-45;return{x,y,w:Math.max(...n.map(n=>n.x+n.w))-x+60,h:Math.max(...n.map(n=>n.y+n.h))+85-y}}
-async function raster(){let b=bounds(),scale=Number($('scale').value);if(b.w*scale>12000||b.h*scale>12000)throw Error('Diagram is too large. Choose a lower resolution.');let svg=`<svg xmlns="${NS}" width="${b.w}" height="${b.h}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="white"/>${markup(true)}</svg>`,u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));try{let img=new Image();await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=u});let c=document.createElement('canvas');c.width=b.w*scale;c.height=b.h*scale;c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c}finally{URL.revokeObjectURL(u)}}
-function pdf(c){let raw=atob(c.toDataURL('image/jpeg',.95).split(',')[1]),jpg=Uint8Array.from(raw,c=>c.charCodeAt(0));let w=Math.min(14400,c.width*.5),h=w*c.height/c.width;const enc=new TextEncoder(),chunks=[],offsets=[0];let len=0;function add(s){let a=typeof s==='string'?enc.encode(s):s;chunks.push(a);len+=a.length}function obj(id,s){offsets[id]=len;add(`${id} 0 obj\n${s}\nendobj\n`)}add('%PDF-1.4\n');obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');obj(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);offsets[4]=len;add(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${c.width} /Height ${c.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);add(jpg);add('\nendstream\nendobj\n');let content=`q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`;obj(5,`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);let xref=len;add('xref\n0 6\n0000000000 65535 f \n');for(let i=1;i<=5;i++)add(String(offsets[i]).padStart(10,'0')+' 00000 n \n');add(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);return new Blob(chunks,{type:'application/pdf'})}
-$('export').onclick=()=>$('exportDialog').showModal();$('download').onclick=async()=>{try{let c=await raster(),format=$('format').value;let blob=format==='pdf'?pdf(c):await new Promise(r=>c.toBlob(r,'image/'+format,.95));if(!blob)throw Error('Image export failed');download(blob,format);toast('Your diagram is ready')}catch(e){toast(e.message||'Export failed. Please try a lower resolution.')}};
-$('copy').onclick=async()=>{try{if(!navigator.clipboard?.write||!window.ClipboardItem)throw Error('Clipboard unavailable. Download a PNG instead.');let promise=raster().then(c=>new Promise(r=>c.toBlob(r,'image/png')));await navigator.clipboard.write([new ClipboardItem({'image/png':promise})]);toast('Diagram copied as PNG')}catch{toast('Clipboard permission unavailable. Download a PNG instead.')}};
-// Table-style ER diagrams share the existing canvas, history and export pipeline.
-types.ERD=[['table','Table']];
-function migrate(s){if(!s.boards.ERD)s.boards.ERD={nodes:[],edges:[]};return s}
-migrate(state);
-const originalNode=node;
-node=function(type,label,x,y){let n=originalNode(type,label,x,y);if(type==='table')Object.assign(n,{label:'New table',w:260,h:136,color:'#edf1fa',columns:[{key:'PK',name:'id',type:'INT'},{key:'',name:'name',type:'VARCHAR(255)'},{key:'FK',name:'parent_id',type:'INT'}]});return n};
-function tableHeight(n){n.h=46+(n.columns||[]).length*30;n.w=Math.max(240,n.w)}
-const originalShape=shape,originalText=text;
-shape=function(n){if(n.type!=='table')return originalShape(n);return `<rect width="${n.w}" height="${n.h}" rx="7" fill="white" stroke="#536b57" stroke-width="1.7"/><path d="M 7 0 H ${n.w-7} Q ${n.w} 0 ${n.w} 7 V 40 H 0 V 7 Q 0 0 7 0" fill="${esc(n.color)}"/><path d="M 0 40 H ${n.w}" stroke="#536b57"/>`+(n.columns||[]).map((c,i)=>`<path d="M 0 ${70+i*30} H ${n.w}" stroke="#e2e8e0"/>`).join('')};
-text=function(n){if(n.type!=='table')return originalText(n);return `<g font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#314a39"><text x="14" y="25" font-size="14" font-weight="600">${esc(n.label)}</text>${(n.columns||[]).map((c,i)=>`<text x="12" y="${61+i*30}" font-size="10" font-weight="700" fill="${c.key.includes('PK')?'#876a27':'#658464'}">${esc(c.key)}</text><text x="55" y="${61+i*30}">${esc(c.name)}</text><text x="${n.w-12}" y="${61+i*30}" text-anchor="end" fill="#7e8c81" font-size="10">${esc(c.type)}</text>`).join('')}</g>`};
-const tab=document.createElement('button');tab.dataset.mode='ERD';tab.innerHTML='ER diagram <small>Tables</small>';$('tabs').append(tab);
-const tableFields=document.createElement('div');tableFields.id='tableFields';tableFields.hidden=true;tableFields.innerHTML='<label>Columns<textarea id="columns" rows="7" spellcheck="false" placeholder="PK | id | INT\nFK | customer_id | INT\n | name | VARCHAR(255)"></textarea></label><p>One column per line: key | name | type. Keys: PK, FK, PK FK, or leave empty. Table height adjusts automatically.</p>';$('fields').insertBefore(tableFields,$('duplicate'));
-const relationFields=document.createElement('div');relationFields.hidden=true;relationFields.innerHTML='<label>From column<select id="fromColumn"></select></label><label>From cardinality<select id="fromCard"><option>1</option><option>0..1</option><option>1..N</option><option>0..N</option></select></label><label>To column<select id="toColumn"></select></label><label>To cardinality<select id="toCard"><option>1</option><option>0..1</option><option>1..N</option><option>0..N</option></select></label>';$('fields').insertBefore(relationFields,$('duplicate'));
-const originalInspect=inspect;
-inspect=function(){originalInspect();let n=board().nodes.find(n=>n.id===selected),e=board().edges.find(e=>e.id===selected),isTable=n?.type==='table';tableFields.hidden=!isTable;relationFields.hidden=!(e&&mode==='ERD');if(isTable){$('columns').value=(n.columns||[]).map(c=>`${c.key} | ${c.name} | ${c.type}`).join('\n');$('height').closest('label').hidden=true}if(e&&mode==='ERD'){for(let side of ['from','to']){let table=board().nodes.find(n=>n.id===e[side]),select=$(side+'Column');select.innerHTML='<option value="">Table</option>'+(table.columns||[]).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');select.value=e[side+'Column']||'';$(side+'Card').value=e[side+'Card']||(side==='from'?'1':'0..N')}}};
-$('columns').onchange=()=>{let n=board().nodes.find(n=>n.id===selected);if(!n||n.type!=='table')return;let lines=$('columns').value.split('\n').filter(s=>s.trim());if(lines.length>40){toast('Use up to 40 columns per table.');return}let columns=[];for(let line of lines){let parts=line.split('|').map(p=>p.trim());if(parts.length!==3||!parts[1]||!parts[2]||!['','PK','FK','PK FK'].includes(parts[0].toUpperCase())){toast('Use key | name | type on every line.');return}columns.push({key:parts[0].toUpperCase(),name:parts[1],type:parts[2]})}if(new Set(columns.map(c=>c.name)).size!==columns.length){toast('Column names must be unique within a table.');return}checkpoint();n.columns=columns;tableHeight(n);board().edges.forEach(e=>{for(let side of ['from','to'])if(e[side]===n.id&&!columns.some(c=>c.name===e[side+'Column']))e[side+'Column']=''});render()};
-for(let side of ['from','to'])for(let suffix of ['Column','Card'])$(side+suffix).onchange=()=>{let e=board().edges.find(e=>e.id===selected);if(!e)return;checkpoint();e[side+suffix]=$(side+suffix).value;render()};
-function tableAnchor(n,t,column){let index=(n.columns||[]).findIndex(c=>c.name===column);return{x:n.x+(t.x+t.w/2>=n.x+n.w/2?n.w:0),y:n.y+(index>=0?55+index*30:20)}}
-const originalMarkup=markup;
-markup=function(clean=false){if(mode!=='ERD')return originalMarkup(clean);return board().edges.map(e=>{let a=board().nodes.find(n=>n.id===e.from),b=board().nodes.find(n=>n.id===e.to);if(!a||!b)return '';let p=tableAnchor(a,b,e.fromColumn),q=tableAnchor(b,a,e.toColumn),mid=(p.x+q.x)/2;let path=`M${p.x} ${p.y} H${mid} V${q.y} H${q.x}`;let startRight=p.x===a.x+a.w,endRight=q.x===b.x+b.w;return `<g class="edge" data-id="${esc(e.id)}"><path d="${path}" fill="none" stroke="${!clean&&selected===e.id?'#4981d0':'#7f9078'}" stroke-width="1.7"/><path d="${path}" fill="none" stroke="transparent" stroke-width="18"/><g font-family="Segoe UI,Arial" font-size="11" fill="#52664d" paint-order="stroke" stroke="white" stroke-width="4"><text x="${p.x+(startRight?10:-10)}" y="${p.y-9}" text-anchor="${startRight?'start':'end'}">${esc(e.fromCard||'1')}</text><text x="${q.x+(endRight?10:-10)}" y="${q.y-9}" text-anchor="${endRight?'start':'end'}">${esc(e.toCard||'0..N')}</text><text x="${mid+8}" y="${(p.y+q.y)/2-10}">${esc(e.label)}</text></g></g>`}).join('')+board().nodes.map(n=>`<g class="node" data-id="${esc(n.id)}" transform="translate(${n.x},${n.y})">${!clean&&(selected===n.id||source===n.id)?`<rect x="-7" y="-7" width="${n.w+14}" height="${n.h+14}" rx="8" fill="none" stroke="#719956" stroke-dasharray="4 3"/>`:''}${shape(n)}${text(n)}</g>`).join('')};
-const originalDuplicate=$('duplicate').onclick;$('duplicate').onclick=()=>{let n=board().nodes.find(n=>n.id===selected);originalDuplicate();let copy=board().nodes.find(n=>n.id===selected);if(n?.columns&&copy)copy.columns=structuredClone(n.columns);persist()};
-// Normalize old projects and validate imported or browser-saved data before rendering.
-function validColumns(n){
-  return Array.isArray(n.columns) && n.columns.length <= 40 &&
-    new Set(n.columns.map(c=>c?.name)).size === n.columns.length &&
-    n.columns.every(c=>c && typeof c.name==='string' && c.name.trim() &&
-      typeof c.type==='string' && c.type.trim() && ['','PK','FK','PK FK'].includes(c.key));
+import { MODES, CARDS, uid, clone, emptyProject, makeNode, normalizeSize, validateProject, connectNodes, removeSelection, template, modelWarnings, Timeline } from './src/model.js';
+import { shape, nodeText, escapeHTML, diagramMarkup, contentBounds, svgDocument } from './src/render.js';
+import { icon, hydrateIcons } from './src/icons.js';
+import { loadProject, saveProject, snapshots, snapshot } from './src/storage.js';
+import { downloadBlob, rasterize, canvasBlob, pdfBlob } from './src/export.js';
+
+const $=id=>document.getElementById(id), html=escapeHTML, canvas=$('canvas'), timeline=new Timeline();
+let state=emptyProject(),mode='BPMN',selected=new Set(),source=null,tool='select',space=false,gesture=null;
+let view={x:0,y:0,zoom:1},saveTimer,toastTimer,hasStored=false,loadFailed=false,saveError=false,resizeFit=false;
+const board=()=>state.boards[mode];
+const tableDrafts=new Map();
+// Text edits save immediately but create one history entry when focus leaves the field.
+function bindText(id,item,key){const input=$(id);let before;input.onfocus=()=>{before=clone(state);};input.oninput=()=>{before??=clone(state);const target=typeof item==='function'?item():item;target[key]=input.value;if(target.type==='table')normalizeSize(target);scheduleSave();render(false);};input.onblur=()=>{if(before){timeline.record(before,state);before=undefined;render(false);}};}
+function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500);}
+function reportStorageError(){saveError=true;$('saveStatus').textContent='Nicht gespeichert · Projektdatei sichern';$('saveStatus').classList.add('storage-error');}
+try {const stored=loadProject(localStorage);if(stored){state=stored;hasStored=true;try{snapshot(localStorage,state);}catch{reportStorageError();}}}catch{loadFailed=true;reportStorageError();}
+function persist(){clearTimeout(saveTimer);if(loadFailed)return;try{saveProject(localStorage,state);saveError=false;$('saveStatus').classList.remove('storage-error');$('saveStatus').textContent='Lokal gespeichert · '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});}catch{reportStorageError();}}
+function scheduleSave(){if(!saveError)$('saveStatus').textContent='Änderungen werden gespeichert …';clearTimeout(saveTimer);saveTimer=setTimeout(persist,350);}
+function preserve(){try{snapshot(localStorage,state);}catch{toast('Lokale Sicherung nicht möglich. Lade eine Projektdatei herunter.');}}
+function commit(before,inspector=true){if(timeline.record(before,state))scheduleSave();render(inspector);}
+function mutate(change,inspector=true){const before=clone(state);change();commit(before,inspector);}
+function setInspector(open){$('inspector').hidden=!open;$('toggleInspector').setAttribute('aria-expanded',String(open));if(open&&matchMedia('(max-width:650px)').matches)setPalette(false);}
+function setPalette(open){$('toolbox').hidden=!open;$('togglePalette').setAttribute('aria-expanded',String(open));if(open&&matchMedia('(max-width:650px)').matches)setInspector(false);}
+function dimensions(){const r=canvas.getBoundingClientRect();return {w:Math.max(1,r.width),h:Math.max(1,r.height)};}
+function updateView(){const {w,h}=dimensions();canvas.setAttribute('viewBox',`${view.x} ${view.y} ${w/view.zoom} ${h/view.zoom}`);$('zoom').textContent=Math.round(view.zoom*100)+' %';}
+function fit(){const b=contentBounds(board()),{w,h}=dimensions();view.zoom=Math.min(1.5,Math.max(.05,Math.min(w/b.w,h/b.h)));view.x=b.x+b.w/2-w/view.zoom/2;view.y=b.y+b.h/2-h/view.zoom/2;updateView();}
+function zoomAt(factor,client){const {w,h}=dimensions(),r=canvas.getBoundingClientRect(),px=client?client.x-r.left:w/2,py=client?client.y-r.top:h/2;const x=view.x+px/view.zoom,y=view.y+py/view.zoom;view.zoom=Math.max(.05,Math.min(4,view.zoom*factor));view.x=x-px/view.zoom;view.y=y-py/view.zoom;updateView();}
+function point(e){const p=canvas.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(canvas.getScreenCTM().inverse());}
+function render(inspector=true){
+  const focus=document.activeElement?.closest?.('#canvas [data-id]')?.dataset.id;
+  canvas.innerHTML=diagramMarkup(board(),mode,selected,source);updateView();
+  if(focus){Array.from(canvas.querySelectorAll('[data-id]')).find(el=>el.dataset.id===focus)?.focus({preventScroll:true});}
+  $('title').value=state.title;$('boardName').value=board().name;$('modeLabel').textContent=MODES[mode].name+' / '+MODES[mode].description;
+  $('emptyState').hidden=!!board().nodes.length;$('counts').textContent=`${board().nodes.length} Elemente · ${board().edges.length} Verbindungen`;
+  $('undo').disabled=!timeline.past.length;$('redo').disabled=!timeline.future.length;
+  document.querySelectorAll('#tabs button').forEach(b=>{b.classList.toggle('active',b.dataset.mode===mode);b.setAttribute('aria-selected',String(b.dataset.mode===mode));b.tabIndex=b.dataset.mode===mode?0:-1;});
+  $('editor').classList.toggle('connecting',tool==='connect');
+  $('toolHint').textContent=tool==='connect'?(source?'Zielelement auswählen · Esc zum Abbrechen':'Startelement auswählen · Esc zum Abbrechen'):tool==='pan'?'Ziehen, um die Ansicht zu verschieben':'Element auswählen · Leertaste zum Verschieben';
+  canvas.style.cursor=tool==='connect'?'crosshair':tool==='pan'||space?'grab':'default';
+  if(inspector)inspect();
 }
-function validateProject(input){
-  if(!input || typeof input.title!=='string' || !input.boards || typeof input.boards!=='object')throw Error('Invalid project');
-  const output={title:input.title,boards:{}};
-  for(const m of Object.keys(types)){
-    const b=input.boards[m] || (m==='ERD'?{nodes:[],edges:[]}:null);
-    if(!b || !Array.isArray(b.nodes) || !Array.isArray(b.edges) || b.nodes.length>2000 || b.edges.length>4000)throw Error('Invalid canvas');
-    const ids=new Set();
-    const nodes=b.nodes.map(n=>{
-      if(!n || typeof n.id!=='string' || !n.id || ids.has(n.id) || !types[m].some(t=>t[0]===n.type) ||
-        !['x','y','w','h'].every(k=>Number.isFinite(n[k])) || n.x<0 || n.y<0 || n.x>50000 || n.y>50000 || n.w<1 || n.h<1 || n.w>5000 || n.h>5000 ||
-        typeof n.label!=='string' || !/^#[a-f0-9]{6}$/i.test(n.color))throw Error('Invalid element');
-      ids.add(n.id);
-      const out={id:n.id,type:n.type,x:n.x,y:n.y,w:n.w,h:n.h,label:n.label,color:n.color};
-      if(n.type==='table'){
-        if(!validColumns(n))throw Error('Invalid table columns');
-        out.columns=n.columns.map(c=>({key:c.key,name:c.name,type:c.type}));tableHeight(out);
-      }
-      return out;
-    });
-    const edgeIds=new Set();
-    const edges=b.edges.map(e=>{
-      if(!e || typeof e.id!=='string' || !e.id || ids.has(e.id) || edgeIds.has(e.id) || typeof e.label!=='string' || !ids.has(e.from) || !ids.has(e.to))throw Error('Invalid connection');
-      edgeIds.add(e.id);
-      const out={id:e.id,from:e.from,to:e.to,label:e.label};
-      if(m==='ERD')for(const side of ['from','to']){
-        const column=e[side+'Column'] || '',card=e[side+'Card'] || (side==='from'?'1':'0..N');
-        if(typeof column!=='string' || (column && !nodes.find(n=>n.id===e[side]).columns.some(c=>c.name===column)) || !['1','0..1','1..N','0..N'].includes(card))throw Error('Invalid table relationship');
-        out[side+'Column']=column;out[side+'Card']=card;
-      }
-      return out;
-    });
-    output.boards[m]={nodes,edges};
-  }
-  return output;
+function setTool(value){tool=value;source=null;for(const t of ['select','connect','pan']){$(t).classList.toggle('chosen',t===tool);$(t).setAttribute('aria-pressed',String(t===tool));}render(false);}
+function switchMode(value){mode=value;selected.clear();source=null;setInspector(false);setTool('select');palette();view={x:0,y:0,zoom:1};render();requestAnimationFrame(fit);}
+$('tabs').innerHTML=Object.entries(MODES).map(([key,m])=>`<button role="tab" id="tab-${key}" data-mode="${key}" aria-controls="canvas" aria-selected="${key===mode}" title="${m.description}">${m.name}<small>${m.description}</small></button>`).join('');
+$('startMode').innerHTML=Object.entries(MODES).map(([key,m])=>`<option value="${key}">${m.name} – ${m.description}</option>`).join('');
+$('tabs').onclick=e=>{const button=e.target.closest('[data-mode]');if(button)switchMode(button.dataset.mode);};
+$('tabs').onkeydown=e=>{const keys=Object.keys(MODES);let i=keys.indexOf(mode);if(e.key==='ArrowRight')i=(i+1)%keys.length;else if(e.key==='ArrowLeft')i=(i+keys.length-1)%keys.length;else if(e.key==='Home')i=0;else if(e.key==='End')i=keys.length-1;else return;e.preventDefault();switchMode(keys[i]);$('tab-'+keys[i]).focus();};
+function palette(){
+  $('palette').innerHTML=MODES[mode].types.map(([type,label])=>{const n=makeNode(type),ratio=n.w/n.h;const symbol={...n,w:ratio>2?130:ratio<1.2?76:130,h:76};return `<button draggable="true" data-type="${type}" title="${label} hinzufügen"><svg viewBox="-8 -8 ${symbol.w+16} 110" aria-hidden="true">${shape(symbol)}${['gateway','parallel','xor','and','or'].includes(type)?nodeText({...symbol,label:''}):''}</svg><span>${label}</span></button>`;}).join('');
+  $('palette').querySelectorAll('button').forEach(b=>{b.onclick=()=>addNode(b.dataset.type);b.ondragstart=e=>{e.dataTransfer.setData('application/model-studio',b.dataset.type);e.dataTransfer.effectAllowed='copy';};});
 }
-$('file').onchange=async e=>{
-  const file=e.target.files[0];if(!file)return;
-  try{
-    if(file.size>10000000)throw Error('Project file is too large');
-    const imported=validateProject(JSON.parse(await file.text()));
-    checkpoint();state=imported;selected=null;source=null;
-    $('title').value=state.title;render();toast('Project opened');
-  }catch{toast('Could not open this project. Choose a valid Model Studio JSON file.');}
-  e.target.value='';
+function addNode(type,position){
+  const {w,h}=dimensions(),n=makeNode(type);const center=position||{x:view.x+w/view.zoom/2,y:view.y+h/view.zoom/2};n.x=Math.round((center.x-n.w/2)/10)*10;n.y=Math.round((center.y-n.h/2)/10)*10;
+  if(!position){let attempts=0;while(board().nodes.some(a=>Math.abs(a.x-n.x)<25&&Math.abs(a.y-n.y)<25)&&attempts++<30){n.x+=30;n.y+=30;}}
+  mutate(()=>{board().nodes.push(n);assignParent(n);selected=new Set([n.id]);});setInspector(true);inspect();if(matchMedia('(max-width:650px)').matches){setInspector(false);setPalette(false);}toast(MODES[mode].types.find(t=>t[0]===type)[1]+' hinzugefügt');
+}
+function assignParent(n){if(n.type==='pool')return;const pool=board().nodes.find(p=>p.type==='pool'&&n.x>=p.x+34&&n.y>=p.y&&n.x+n.w<=p.x+p.w&&n.y+n.h<=p.y+p.h);if(pool)n.parentId=pool.id;else delete n.parentId;}
+canvas.ondragover=e=>{if(Array.from(e.dataTransfer.types).includes('application/model-studio')){e.preventDefault();e.dataTransfer.dropEffect='copy';}};
+canvas.ondrop=e=>{e.preventDefault();const type=e.dataTransfer.getData('application/model-studio');if(MODES[mode].types.some(t=>t[0]===type))addNode(type,point(e));};
+
+function selectId(id,add=false){if(add){if(selected.has(id))selected.delete(id);else selected.add(id);}else selected=new Set(id?[id]:[]);render();if(selected.size)setInspector(true);}
+function finishConnection(id){if(!source){source=id;render(false);return;}const from=source;if(from===id){toast('Wähle ein anderes Zielelement.');return;}let added=false;mutate(()=>{added=connectNodes(board(),from,id);if(added)selected=new Set([board().edges.at(-1).id]);});if(added){source=null;setTool('select');inspect();setInspector(true);toast('Verbindung erstellt');}else toast('Diese Verbindung besteht bereits oder ist nicht zulässig.');}
+canvas.onpointerdown=e=>{
+  if(e.button!==0&&e.button!==1)return;const p=point(e),g=e.target.closest('[data-id]'),id=g?.dataset.id,n=board().nodes.find(n=>n.id===id);
+  if(e.button===1||space||tool==='pan'){e.preventDefault();gesture={kind:'pan',cx:e.clientX,cy:e.clientY,x:view.x,y:view.y};canvas.setPointerCapture(e.pointerId);return;}
+  if(e.target.dataset.port&&n){setTool('connect');source=id;selected=new Set([id]);render(false);return;}
+  if(tool==='connect'&&n){finishConnection(id);return;}
+  if(!g){selected.clear();source=null;setInspector(false);render();return;}
+  if(e.shiftKey){selectId(id,true);return;}
+  if(!selected.has(id))selectId(id);else render(false);
+  if(n){const ids=new Set(selected);for(const item of board().nodes)if(ids.has(item.parentId))ids.add(item.id);gesture={kind:'move',start:p,before:clone(state),positions:board().nodes.filter(a=>ids.has(a.id)).map(a=>({id:a.id,x:a.x,y:a.y})),moved:false};canvas.setPointerCapture(e.pointerId);}
 };
-palette();render();
+canvas.onpointermove=e=>{
+  if(!gesture)return;if(gesture.kind==='pan'){view.x=gesture.x-(e.clientX-gesture.cx)/view.zoom;view.y=gesture.y-(e.clientY-gesture.cy)/view.zoom;updateView();return;}
+  const p=point(e),dx=Math.round((p.x-gesture.start.x)/10)*10,dy=Math.round((p.y-gesture.start.y)/10)*10;
+  if(!dx&&!dy&&!gesture.moved)return;gesture.moved=true;
+  for(const pos of gesture.positions){const n=board().nodes.find(n=>n.id===pos.id);n.x=pos.x+dx;n.y=pos.y+dy;}render(false);
+};
+function finishGesture(cancel=false){if(!gesture)return;const current=gesture;gesture=null;if(current.kind==='move'&&current.moved){if(cancel){state=current.before;render();}else{for(const pos of current.positions)assignParent(board().nodes.find(n=>n.id===pos.id));commit(current.before,false);}}}
+canvas.onpointerup=()=>finishGesture();canvas.onpointercancel=()=>finishGesture(true);
+canvas.onwheel=e=>{e.preventDefault();if(e.ctrlKey||e.metaKey){zoomAt(Math.exp(-e.deltaY*.005),{x:e.clientX,y:e.clientY});}else{view.x+=e.deltaX/view.zoom;view.y+=e.deltaY/view.zoom;updateView();}};
+canvas.ondblclick=e=>{const id=e.target.closest('[data-id]')?.dataset.id;if(id){selected=new Set([id]);render();setInspector(true);$('label')?.focus();$('label')?.select();}};
+canvas.onfocusin=e=>{const id=e.target.closest('[data-id]')?.dataset.id;if(id&&!selected.has(id)){selected=new Set([id]);canvas.querySelectorAll('.node').forEach(n=>n.classList.toggle('selected',n.dataset.id===id));inspect();}};
+
+function inspect(){
+  const n=board().nodes.find(n=>selected.has(n.id)),edge=board().edges.find(e=>selected.has(e.id)),body=$('inspectorBody');
+  if(!selected.size){$('inspectorTitle').textContent='Deine Auswahl';body.innerHTML='<p>Wähle ein Element oder eine Verbindung auf der Zeichenfläche, um die Eigenschaften zu bearbeiten.</p>';return;}
+  if(selected.size>1){$('inspectorTitle').textContent=selected.size+' ausgewählt';body.innerHTML='<p>Ordne die ausgewählten Elemente gemeinsam an.</p><div class="multi-actions"><button data-align="left">Linksbündig</button><button data-align="top">Oben ausrichten</button><button data-align="horizontal">Horizontal verteilen</button><button data-align="vertical">Vertikal verteilen</button></div><div class="inspector-actions"><button id="duplicate" data-icon="copy">Duplizieren</button><button id="delete" class="danger" data-icon="trash">Löschen</button></div>';body.querySelectorAll('[data-align]').forEach(b=>b.onclick=()=>align(b.dataset.align));bindActions();hydrateIcons(body);return;}
+  const item=n||edge;if(!item)return;
+  $('inspectorTitle').textContent=n?(MODES[mode].types.find(t=>t[0]===n.type)?.[1]||'Element'):'Verbindung';
+  body.innerHTML=`<label for="label">${n?.type==='table'?'Tabellenname':'Beschriftung'}</label><textarea id="label" rows="3" maxlength="2000">${html(item.label)}</textarea>${n?`<label for="color">Füllfarbe</label><input type="color" id="color" value="${n.color}"><div class="form-grid"><label>Breite<input type="number" id="width" min="${n.type==='table'?280:40}" max="3000" value="${n.w}"></label>${n.type==='table'?'<p class="fine">Die Höhe passt sich den Spalten an.</p>':`<label>Höhe<input type="number" id="height" min="30" max="3000" value="${n.h}"></label>`}</div>`:''}${n?.type==='table'?'<div class="columns-title"><h3>Spalten</h3><button id="addColumn" data-icon="plus">Hinzufügen</button></div><div id="columnRows"></div><p id="columnError" class="error" role="alert" hidden></p><details><summary>Expertenmodus · Text bearbeiten</summary><textarea id="columns" class="expert" aria-label="Spalten als Text" spellcheck="false"></textarea><p class="fine">Eine Spalte pro Zeile: Schlüssel | Name | Typ. Schlüssel: PK, FK, PK FK oder leer.</p><button id="applyColumns" class="apply-columns">Text übernehmen</button></details>':''}${edge&&mode==='ERD'?'<p>Ordne die verbundenen Tabellen über ihre Spalten zu. „1“ steht für genau einen Datensatz, „0..N“ für beliebig viele.</p>'+['from','to'].map((side,i)=>{const table=board().nodes.find(n=>n.id===edge[side]);return `<label for="${side}Column">${i?'Ziel':'Quelle'}: ${html(table.label)} · Spalte</label><select id="${side}Column"><option value="">Ganze Tabelle</option>${table.columns.map(c=>`<option value="${html(c.name)}">${html(c.name)}</option>`).join('')}</select><label for="${side}Card">${i?'Ziel':'Quelle'}: Anzahl</label><select id="${side}Card">${CARDS.map(c=>`<option>${c}</option>`).join('')}</select>`;}).join(''):''}<div class="inspector-actions">${n?'<button id="duplicate" data-icon="copy">Duplizieren</button>':''}<button id="delete" class="danger" data-icon="trash">Löschen</button></div>`;
+  bindText('label',item,'label');
+  if(n){$('color').oninput=()=>mutate(()=>{n.color=$('color').value;},false);for(const [id,key,min]of [['width','w',n.type==='table'?280:40],['height','h',30]])if($(id))$(id).onchange=()=>{const value=Number($(id).value);if(!Number.isFinite(value)||value<min||value>3000){$(id).setCustomValidity(`Wähle einen Wert zwischen ${min} und 3000.`);$(id).reportValidity();return;}$(id).setCustomValidity('');mutate(()=>{n[key]=value;});};}
+  if(n?.type==='table'){
+    let draft=clone(tableDrafts.get(n.id)||n.columns);
+    const error=message=>{$('columnError').textContent=message;$('columnError').hidden=!message;};
+    const apply=(rerender=false)=>{
+      tableDrafts.set(n.id,clone(draft));
+      if(draft.length>40){error('Höchstens 40 Spalten pro Tabelle.');if(rerender)rows();return false;}
+      if(draft.some(c=>!c.name.trim()||!c.type.trim())){error('Jede Spalte braucht einen Namen und einen Datentyp.');if(rerender)rows();return false;}
+      if(new Set(draft.map(c=>c.name.trim())).size!==draft.length){error('Spaltennamen müssen innerhalb der Tabelle eindeutig sein.');if(rerender)rows();return false;}
+      error('');tableDrafts.delete(n.id);const old=clone(n.columns);mutate(()=>{n.columns=clone(draft);normalizeSize(n);for(const e of board().edges)for(const side of ['from','to'])if(e[side]===n.id&&e[side+'Column']&&!n.columns.some(c=>c.name===e[side+'Column'])){const index=old.findIndex(c=>c.name===e[side+'Column']);e[side+'Column']=index>=0&&old.length===draft.length?draft[index].name:'';}},false);$('columns').value=draft.map(c=>`${c.key} | ${c.name} | ${c.type}`).join('\n');if(rerender)rows();return true;
+    };
+    const rows=()=>{
+      $('columnRows').innerHTML=draft.map((c,i)=>`<div class="column-row" data-index="${i}"><input class="field-input" data-col="name" aria-label="Spalte ${i+1}: Name" value="${html(c.name)}" maxlength="100"><input class="field-input" data-col="type" aria-label="Spalte ${i+1}: Datentyp" value="${html(c.type)}" list="dataTypes" maxlength="100"><div class="column-flags"><label><input type="checkbox" data-flag="PK" ${c.key.includes('PK')?'checked':''}> PK</label><label><input type="checkbox" data-flag="FK" ${c.key.includes('FK')?'checked':''}> FK</label><span class="spacer"></span><button data-move="-1" aria-label="Spalte ${i+1} nach oben" ${i===0?'disabled':''}>${icon('up')}</button><button data-move="1" aria-label="Spalte ${i+1} nach unten" ${i===draft.length-1?'disabled':''}>${icon('down')}</button><button data-remove aria-label="Spalte ${i+1} entfernen">${icon('trash')}</button></div></div>`).join('')+'<datalist id="dataTypes">'+['INT','BIGINT','VARCHAR(255)','TEXT','DATE','TIMESTAMP','BOOLEAN','DECIMAL(10,2)','UUID'].map(t=>`<option value="${t}">`).join('')+'</datalist>';
+      $('columnRows').querySelectorAll('.column-row').forEach(row=>{const i=Number(row.dataset.index);row.querySelectorAll('[data-col]').forEach(input=>input.oninput=()=>{draft[i][input.dataset.col]=input.value;apply();});row.querySelectorAll('[data-flag]').forEach(input=>input.onchange=()=>{draft[i].key=Array.from(row.querySelectorAll('[data-flag]:checked')).map(c=>c.dataset.flag).join(' ');apply();});row.querySelectorAll('[data-move]').forEach(button=>button.onclick=()=>{const j=i+Number(button.dataset.move);[draft[i],draft[j]]=[draft[j],draft[i]];apply(true);});row.querySelector('[data-remove]').onclick=()=>{draft.splice(i,1);apply(true);};});
+    };
+    rows();$('columns').value=draft.map(c=>`${c.key} | ${c.name} | ${c.type}`).join('\n');if(tableDrafts.has(n.id))error('Dieser Entwurf enthält ungültige oder doppelte Spalten. Korrigiere ihn, damit er gespeichert wird.');
+    $('addColumn').onclick=()=>{if(draft.length>=40){error('Höchstens 40 Spalten pro Tabelle.');return;}let name='spalte_'+(draft.length+1);while(draft.some(c=>c.name===name))name+='_neu';draft.push({key:'',name,type:'VARCHAR(255)'});apply(true);};
+    $('applyColumns').onclick=()=>{const parsed=[];for(const line of $('columns').value.split('\n').filter(s=>s.trim())){const parts=line.split('|').map(p=>p.trim());if(parts.length!==3||!['','PK','FK','PK FK'].includes(parts[0].toUpperCase())){error('Nutze pro Zeile: Schlüssel | Name | Typ.');return;}parsed.push({key:parts[0].toUpperCase(),name:parts[1],type:parts[2]});}draft=parsed;apply(true);};
+  }
+  if(edge&&mode==='ERD')for(const side of ['from','to'])for(const suffix of ['Column','Card']){const key=side+suffix;$(key).value=edge[key]??(suffix==='Column'?'':side==='from'?'1':'0..N');$(key).onchange=()=>mutate(()=>{edge[key]=$(key).value;},false);}
+  bindActions();hydrateIcons(body);
+}
+function bindActions(){if($('delete'))$('delete').onclick=remove;if($('duplicate'))$('duplicate').onclick=duplicate;}
+function remove(){if(!selected.size)return;mutate(()=>{removeSelection(board(),selected);selected.clear();});setInspector(false);toast('Auswahl gelöscht · mit Strg+Z wiederherstellen');}
+function duplicate(){const originals=board().nodes.filter(n=>selected.has(n.id));if(!originals.length)return;mutate(()=>{const mapping=new Map(originals.map(n=>[n.id,uid()]));const copies=originals.map(n=>({...clone(n),id:mapping.get(n.id),x:n.x+40,y:n.y+40,...(n.parentId?{parentId:mapping.get(n.parentId)||n.parentId}:{})}));board().nodes.push(...copies);board().edges.push(...board().edges.filter(e=>mapping.has(e.from)&&mapping.has(e.to)).map(e=>({...clone(e),id:uid(),from:mapping.get(e.from),to:mapping.get(e.to)})));selected=new Set(copies.map(n=>n.id));});}
+function align(kind){const nodes=board().nodes.filter(n=>selected.has(n.id));if(nodes.length<2)return;mutate(()=>{if(kind==='left')nodes.forEach(n=>n.x=Math.min(...nodes.map(n=>n.x)));else if(kind==='top')nodes.forEach(n=>n.y=Math.min(...nodes.map(n=>n.y)));else{const axis=kind==='horizontal'?'x':'y',size=axis==='x'?'w':'h';nodes.sort((a,b)=>a[axis]-b[axis]);const first=nodes[0][axis],last=nodes.at(-1)[axis]+nodes.at(-1)[size],gap=(last-first-nodes.reduce((sum,n)=>sum+n[size],0))/(nodes.length-1);let pos=first;nodes.forEach(n=>{n[axis]=pos;pos+=n[size]+gap;});}nodes.forEach(assignParent);});}
+function undo(redo=false){if(gesture)finishGesture();state=redo?timeline.redo(state):timeline.undo(state);selected.clear();source=null;render();scheduleSave();}
+for(const toolName of ['select','connect','pan'])$(toolName).onclick=()=>setTool(toolName);
+$('undo').onclick=()=>undo();$('redo').onclick=()=>undo(true);
+bindText('title',()=>state,'title');bindText('boardName',board,'name');
+$('togglePalette').onclick=()=>setPalette($('toolbox').hidden);$('closePalette').onclick=()=>{setPalette(false);$('togglePalette').focus();};
+$('toggleInspector').onclick=()=>{inspect();setInspector($('inspector').hidden);};$('closeInspector').onclick=()=>{setInspector(false);$('toggleInspector').focus();};
+$('plus').onclick=()=>zoomAt(1.2);$('minus').onclick=()=>zoomAt(1/1.2);$('zoom').onclick=()=>zoomAt(1/view.zoom);$('fit').onclick=fit;
+new ResizeObserver(()=>{updateView();if(resizeFit){fit();resizeFit=false;}}).observe(canvas);
+
+document.addEventListener('keydown',e=>{
+  if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+  const focused=e.target.closest?.('#canvas [data-id]');if(focused&&!selected.has(focused.dataset.id))selected=new Set([focused.dataset.id]);
+  if(e.code==='Space'){e.preventDefault();space=true;canvas.style.cursor='grab';}
+  if(e.key==='Escape'){finishGesture(true);selected.clear();setTool('select');setInspector(false);render();canvas.focus();}
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove();canvas.focus();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();selected=new Set(board().nodes.map(n=>n.id));render();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();duplicate();}
+  if(e.key.toLowerCase()==='c'&&!e.ctrlKey&&!e.metaKey)setTool('connect');
+  if((e.key==='Enter'||e.key==='F2')&&focused){e.preventDefault();if(tool==='connect'&&board().nodes.some(n=>n.id===focused.dataset.id))finishConnection(focused.dataset.id);else{render();setInspector(true);$('label')?.focus();}}
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)&&selected.size&&canvas.contains(e.target)){e.preventDefault();const step=e.shiftKey?1:10;mutate(()=>{const ids=new Set(selected);board().nodes.forEach(n=>{if(ids.has(n.parentId))ids.add(n.id);});board().nodes.filter(n=>ids.has(n.id)).forEach(n=>{n.x+=(e.key==='ArrowRight'?step:e.key==='ArrowLeft'?-step:0);n.y+=(e.key==='ArrowDown'?step:e.key==='ArrowUp'?-step:0);assignParent(n);});},false);}
+});
+document.addEventListener('keyup',e=>{if(e.code==='Space'){space=false;canvas.style.cursor=tool==='pan'?'grab':'default';}});
+window.addEventListener('blur',()=>{space=false;finishGesture();});
+window.addEventListener('pagehide',persist);document.addEventListener('visibilitychange',()=>{if(document.hidden)persist();});
+
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+function confirmAction(title,text,action){$('confirmTitle').textContent=title;$('confirmText').textContent=text;$('confirmCancel').onclick=()=>$('confirmDialog').close();const proceed=backup=>{if(backup)saveFile();preserve();$('confirmDialog').close();action();};$('confirmProceed').onclick=()=>proceed(false);$('confirmBackup').onclick=()=>proceed(true);$('confirmDialog').showModal();$('confirmCancel').focus();}
+function replaceBoard(withTemplate){const action=()=>{mutate(()=>{state.boards[mode]=withTemplate?template(mode):{name:board().name,nodes:[],edges:[]};selected.clear();source=null;});setInspector(false);requestAnimationFrame(fit);};if(board().nodes.length)confirmAction(withTemplate?'Vorlage einsetzen?':'Diagramm leeren?',`Das aktuelle Diagramm „${board().name}“ wird ${withTemplate?'durch eine Vorlage ersetzt':'geleert'}. Die anderen Modellarten bleiben erhalten. Du kannst die Aktion rückgängig machen.`,action);else action();}
+$('clear').onclick=()=>replaceBoard(false);$('template').onclick=() =>replaceBoard(true);$('emptyTemplate').onclick=()=>replaceBoard(true);
+$('startBlank').onclick=()=>{switchMode($('startMode').value);$('startDialog').close();canvas.focus();};
+$('startTemplate').onclick=()=>{switchMode($('startMode').value);$('startDialog').close();replaceBoard(true);};
+function openFile(){$('file').click();}
+for(const id of ['open','emptyOpen','startOpen'])$(id).onclick=openFile;
+function saveFile(){downloadBlob(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),state.title,'json');}
+$('save').onclick=saveFile;
+$('file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;try{if(f.size>10000000)throw Error('Die Projektdatei darf höchstens 10 MB groß sein.');const incoming=validateProject(JSON.parse(await f.text()));$('startDialog').close();const action=()=>{loadFailed=false;mutate(()=>{state=incoming;selected.clear();source=null;});setInspector(false);requestAnimationFrame(fit);toast('Projekt geöffnet');};if(Object.values(state.boards).some(b=>b.nodes.length))confirmAction('Projekt ersetzen?','Die Datei ersetzt alle Diagramme des aktuellen Projekts. Lade bei Bedarf zuerst eine Sicherung herunter.',action);else action();}catch(error){toast('Öffnen fehlgeschlagen: '+(error instanceof SyntaxError?'Die Datei enthält kein gültiges JSON.':error.message));}e.target.value='';
+};
+$('help').onclick=()=>$('helpDialog').showModal();
+$('check').onclick=()=>{const issues=modelWarnings(board(),mode);$('issues').innerHTML=issues.length?issues.map((i,index)=>`<button class="issue" data-issue="${index}" ${i.id?'':'disabled'}>${html(i.message)}</button>`).join(''):'<p>Keine grundlegenden Strukturprobleme gefunden.</p>';$('issues').querySelectorAll('[data-issue]').forEach(b=>b.onclick=()=>{const issue=issues[Number(b.dataset.issue)];$('issuesDialog').close();selectId(issue.id);const n=board().nodes.find(n=>n.id===issue.id),{w,h}=dimensions();view.x=n.x+n.w/2-w/view.zoom/2;view.y=n.y+n.h/2-h/view.zoom/2;updateView();});$('issuesDialog').showModal();};
+$('history').onclick=()=>{try{const list=snapshots(localStorage);$('snapshots').innerHTML=list.length?list.map((s,i)=>`<button class="snapshot" data-snapshot="${i}"><strong>${html(s.state.title)}</strong><small>${html(new Date(s.at).toLocaleString('de-DE'))} · ${Object.values(s.state.boards).reduce((sum,b)=>sum+b.nodes.length,0)} Elemente</small></button>`).join(''):'<p>Noch keine Sicherungen. Ein Stand wird beim nächsten Sitzungsstart oder vor dem Ersetzen angelegt.</p>';$('snapshots').querySelectorAll('[data-snapshot]').forEach(b=>b.onclick=()=>{const incoming=clone(list[Number(b.dataset.snapshot)].state);$('historyDialog').close();confirmAction('Sicherung wiederherstellen?','Alle Diagramme werden durch diesen Stand ersetzt. Der aktuelle Stand bleibt über Rückgängig erreichbar.',()=>{loadFailed=false;mutate(()=>{state=incoming;selected.clear();source=null;});setInspector(false);requestAnimationFrame(fit);});});$('historyDialog').showModal();}catch{toast('Die lokalen Sicherungen sind nicht lesbar.');}};
+function previewExport(){const format=$('format').value,bg=['jpeg','pdf'].includes(format)?'#ffffff':$('background').value;$('exportPreview').innerHTML=svgDocument(board(),mode,bg);$('paper').disabled=format!=='pdf';$('scale').disabled=format==='svg';$('background').disabled=['jpeg','pdf'].includes(format);}
+$('export').onclick=()=>{previewExport();$('exportError').hidden=true;$('exportDialog').showModal();};for(const id of ['format','background'])$(id).onchange=previewExport;
+async function exportAction(copy=false){
+  $('download').disabled=true;$('copy').disabled=true;$('download').textContent='Wird erstellt …';$('exportError').hidden=true;
+  try{const format=$('format').value,bg=['jpeg','pdf'].includes(format)?'#ffffff':$('background').value;
+    if(copy){if(!navigator.clipboard?.write||!globalThis.ClipboardItem)throw Error('Die Zwischenablage ist nicht verfügbar. Lade stattdessen PNG herunter.');const promise=rasterize(board(),mode,Number($('scale').value),bg).then(c=>canvasBlob(c));await navigator.clipboard.write([new ClipboardItem({'image/png':promise})]);toast('Diagramm als PNG kopiert');}
+    else{let blob;if(format==='svg')blob=new Blob([svgDocument(board(),mode,bg)],{type:'image/svg+xml'});else{const c=await rasterize(board(),mode,Number($('scale').value),bg);blob=format==='pdf'?pdfBlob(c,$('paper').value):await canvasBlob(c,'image/'+format);}downloadBlob(blob,board().name,format);toast('Export heruntergeladen');}
+  }catch(error){$('exportError').textContent=error.message||'Export fehlgeschlagen. Versuche eine kleinere Auflösung.';$('exportError').hidden=false;}finally{$('download').disabled=false;$('copy').disabled=false;$('download').innerHTML=icon('export')+'Herunterladen';}
+}
+$('download').onclick=()=>exportAction();$('copy').onclick=()=>exportAction(true);
+hydrateIcons();palette();render();if(matchMedia('(max-width:650px)').matches)setPalette(false);requestAnimationFrame(()=>{fit();if(!hasStored&&!loadFailed)$('startDialog').showModal();});
+if(loadFailed)toast('Gespeicherte Daten konnten nicht geladen werden. Sie werden nicht überschrieben; öffne eine gültige Projektdatei zur Wiederherstellung.');

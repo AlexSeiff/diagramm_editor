@@ -13,6 +13,7 @@ const port = Number(option('--port', process.env.PORT || '5173'));
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error('Invalid port');
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
 const allowed = new Set(['index.html', 'app.js', 'style.css', 'Model Studio.html']);
+for (const name of ['model', 'render', 'icons', 'storage', 'export']) allowed.add('src/' + name + '.js');
 
 const server = createServer(async (request, response) => {
   if (!['GET', 'HEAD'].includes(request.method)) {
