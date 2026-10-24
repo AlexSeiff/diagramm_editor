@@ -1,0 +1,15 @@
+{
+  "name": "diagramm-editor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based BPMN, EPK, ERM and table-based ER diagram editor with PNG, JPEG and PDF export.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs --dir dist",
+    "test": "node --check app.js && node tests/tables.cjs && node --test tests/*.test.mjs"
+  },
+  "repository": { "type": "git", "url": "https://github.com/AlexSeiff/diagramm_editor.git" }
+}
